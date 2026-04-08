@@ -1,0 +1,37 @@
+paths:
+  papers_dir: "./raw"
+  summaries_dir: "./summaries"
+  index_file: "./summary_index.md"
+  state_file: "./.state.json"
+
+processing:
+  chunk_chars: 9000
+  overlap_chars: 500
+  incremental: true
+  language: "zh"
+
+llm:
+  provider: "openai_compatible" # openai_compatible | ollama
+  model: "gpt-4.1-mini"
+  api_base: "https://api.openai.com/v1"
+  api_key_env: "OPENAI_API_KEY"
+  temperature: 0.2
+  max_tokens: 1200
+  timeout_sec: 120
+
+prompt:
+  system: |
+    你是严谨的科研助手。请根据输入内容生成结构化中文摘要，禁止编造。
+    如果原文未提及某项信息，请明确写“原文未明确给出”。
+  template: |
+    请基于下列论文内容生成摘要，必须包含：
+    1) 一句话总结
+    2) 研究问题
+    3) 方法
+    4) 实验与数据
+    5) 关键结果（尽量带数字）
+    6) 局限性
+
+runtime:
+  poll_seconds: 10
+  log_level: "INFO"
