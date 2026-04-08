@@ -4,6 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Any
+from urllib.error import HTTPError
 from urllib import request
 
 
@@ -55,8 +56,14 @@ class OpenAICompatibleClient(BaseLLMClient):
             },
             method="POST",
         )
-        with request.urlopen(req, timeout=self.cfg.timeout_sec) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        try:
+            with request.urlopen(req, timeout=self.cfg.timeout_sec) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except HTTPError as e:
+            detail = _read_http_error_detail(e)
+            raise RuntimeError(
+                f"LLM request failed ({e.code}) at {base}/chat/completions: {detail}"
+            ) from e
         return body["choices"][0]["message"]["content"].strip()
 
 
@@ -84,8 +91,12 @@ class OllamaClient(BaseLLMClient):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with request.urlopen(req, timeout=self.cfg.timeout_sec) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        try:
+            with request.urlopen(req, timeout=self.cfg.timeout_sec) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except HTTPError as e:
+            detail = _read_http_error_detail(e)
+            raise RuntimeError(f"Ollama request failed ({e.code}) at {base}/api/chat: {detail}") from e
         return body["message"]["content"].strip()
 
 
@@ -95,6 +106,14 @@ def _resolve_api_key(value: str) -> str:
     if token.startswith("sk-"):
         return token
     return os.getenv(token, "")
+
+
+def _read_http_error_detail(error: HTTPError) -> str:
+    raw = error.read()
+    if not raw:
+        return error.reason if isinstance(error.reason, str) else "no error body"
+    text = raw.decode("utf-8", errors="replace").strip()
+    return text[:1000]
 
 
 def build_llm_client(llm_section: dict[str, Any]) -> BaseLLMClient:
