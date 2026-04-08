@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 
 from .config import AppConfig
 from .indexer import rebuild_index
@@ -70,8 +71,13 @@ def summarize_pdf(pdf_path: Path, cfg: AppConfig, llm: BaseLLMClient) -> str:
     return final
 
 
+def _path_for_state(path: Path, root: Path) -> str:
+    """Return a stable path key even when target is outside root."""
+    return os.path.relpath(path, root)
+
+
 def process_pdf(pdf_path: Path, cfg: AppConfig, state: dict, llm: BaseLLMClient, force: bool = False) -> bool:
-    pdf_rel = str(pdf_path.relative_to(cfg.root_dir))
+    pdf_rel = _path_for_state(pdf_path, cfg.root_dir)
     digest = sha256_file(pdf_path)
     files = state.setdefault("files", {})
     old = files.get(pdf_rel, {})
@@ -97,7 +103,7 @@ def process_pdf(pdf_path: Path, cfg: AppConfig, state: dict, llm: BaseLLMClient,
 
     files[pdf_rel] = {
         "sha256": digest,
-        "summary": str(summary_path.relative_to(cfg.root_dir)),
+        "summary": _path_for_state(summary_path, cfg.root_dir),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     return True

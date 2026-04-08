@@ -4,6 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Any
+from urllib.error import HTTPError
 from urllib import request
 
 
@@ -28,9 +29,12 @@ class OpenAICompatibleClient(BaseLLMClient):
         self.cfg = cfg
 
     def summarize(self, *, system_prompt: str, user_content: str) -> str:
-        api_key = os.getenv(self.cfg.api_key_env)
+        api_key = _resolve_api_key(self.cfg.api_key_env)
         if not api_key:
-            raise RuntimeError(f"Missing API key env var: {self.cfg.api_key_env}")
+            raise RuntimeError(
+                "Missing API key. Set env var "
+                f"{self.cfg.api_key_env!r}, or place a literal key (e.g. sk-...) in llm.api_key_env."
+            )
 
         payload: dict[str, Any] = {
             "model": self.cfg.model,
@@ -52,8 +56,14 @@ class OpenAICompatibleClient(BaseLLMClient):
             },
             method="POST",
         )
-        with request.urlopen(req, timeout=self.cfg.timeout_sec) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        try:
+            with request.urlopen(req, timeout=self.cfg.timeout_sec) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except HTTPError as e:
+            detail = _read_http_error_detail(e)
+            raise RuntimeError(
+                f"LLM request failed ({e.code}) at {base}/chat/completions: {detail}"
+            ) from e
         return body["choices"][0]["message"]["content"].strip()
 
 
@@ -81,9 +91,29 @@ class OllamaClient(BaseLLMClient):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with request.urlopen(req, timeout=self.cfg.timeout_sec) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        try:
+            with request.urlopen(req, timeout=self.cfg.timeout_sec) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except HTTPError as e:
+            detail = _read_http_error_detail(e)
+            raise RuntimeError(f"Ollama request failed ({e.code}) at {base}/api/chat: {detail}") from e
         return body["message"]["content"].strip()
+
+
+def _resolve_api_key(value: str) -> str:
+    """Resolve API key from env var name or literal key value."""
+    token = value.strip()
+    if token.startswith("sk-"):
+        return token
+    return os.getenv(token, "")
+
+
+def _read_http_error_detail(error: HTTPError) -> str:
+    raw = error.read()
+    if not raw:
+        return error.reason if isinstance(error.reason, str) else "no error body"
+    text = raw.decode("utf-8", errors="replace").strip()
+    return text[:1000]
 
 
 def build_llm_client(llm_section: dict[str, Any]) -> BaseLLMClient:
