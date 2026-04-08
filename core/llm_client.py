@@ -28,9 +28,12 @@ class OpenAICompatibleClient(BaseLLMClient):
         self.cfg = cfg
 
     def summarize(self, *, system_prompt: str, user_content: str) -> str:
-        api_key = os.getenv(self.cfg.api_key_env)
+        api_key = _resolve_api_key(self.cfg.api_key_env)
         if not api_key:
-            raise RuntimeError(f"Missing API key env var: {self.cfg.api_key_env}")
+            raise RuntimeError(
+                "Missing API key. Set env var "
+                f"{self.cfg.api_key_env!r}, or place a literal key (e.g. sk-...) in llm.api_key_env."
+            )
 
         payload: dict[str, Any] = {
             "model": self.cfg.model,
@@ -84,6 +87,14 @@ class OllamaClient(BaseLLMClient):
         with request.urlopen(req, timeout=self.cfg.timeout_sec) as resp:
             body = json.loads(resp.read().decode("utf-8"))
         return body["message"]["content"].strip()
+
+
+def _resolve_api_key(value: str) -> str:
+    """Resolve API key from env var name or literal key value."""
+    token = value.strip()
+    if token.startswith("sk-"):
+        return token
+    return os.getenv(token, "")
 
 
 def build_llm_client(llm_section: dict[str, Any]) -> BaseLLMClient:
